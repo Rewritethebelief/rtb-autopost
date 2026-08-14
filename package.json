@@ -1,0 +1,16 @@
+{
+  "name": "rtb-autopost",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Automated Instagram carousel posting for Rewrite the Belief",
+  "scripts": {
+    "ingest": "node scripts/ingest.js",
+    "post": "node scripts/post.js",
+    "refresh": "node scripts/refresh-token.js"
+  },
+  "dependencies": {
+    "libsodium-wrappers": "^0.7.13",
+    "sharp": "^0.33.5"
+  }
+}
