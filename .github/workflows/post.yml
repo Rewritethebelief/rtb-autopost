@@ -1,0 +1,83 @@
+name: Post to Instagram
+
+on:
+  schedule:
+    # 01:17 UTC = 8:17 PM Central (CDT, Mar-Nov) / 7:17 PM (CST, Nov-Mar).
+    # GitHub cron ignores daylight saving. Change to "17 2 * * *" in November
+    # if you want the hour held steady year round.
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: manifest
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Publish one carousel
+        id: publish
+        continue-on-error: true
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          PAGES_BASE_URL: ${{ secrets.PAGES_BASE_URL }}
+        run: node scripts/post.js
+
+      - name: Commit manifest and log
+        run: |
+          git config user.name "rtb-autopost"
+          git config user.email "actions@github.com"
+          git add manifest.json post-log.md 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "post: daily carousel"
+            git pull --rebase --autostash || true
+            git push
+          fi
+
+      - name: Open an issue if the post failed
+        if: steps.publish.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REASON=$(cat POST_FAILED 2>/dev/null || echo "unknown error")
+          gh issue create \
+            --title "Instagram post failed $(date -u +%Y-%m-%d)" \
+            --body "The daily post did not publish.
+
+          **Error:** $REASON
+
+          Most likely causes, in order:
+          1. IG_ACCESS_TOKEN expired â€” check the monthly refresh workflow ran
+          2. A slide image is not reachable at its public URL
+          3. Instagram rate limit (25 posts per 24h)
+
+          The carousel is marked \`failed\` in manifest.json. Set its status back
+          to \`pending\` once fixed and it will be retried."
+
+      - name: Warn when the library runs low
+        if: hashFiles('LOW_LIBRARY') != '' || hashFiles('EMPTY_LIBRARY') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(cat LOW_LIBRARY 2>/dev/null || echo "0")
+          gh issue create \
+            --title "Carousel library low â€” $COUNT remaining" \
+            --body "Only $COUNT unposted carousels left. Generate a new batch and upload them to \`carousels/\` to keep posting."
+
+      - name: Fail the run if the post failed
+        if: steps.publish.outcome == 'failure'
+        run: exit 1
